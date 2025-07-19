@@ -230,6 +230,7 @@ u16 adc_get_val(void)
     return g_temp_value;
 }
 
+#if 0
 // 获取adc单次转换后的值
 u16 adc_get_val_once(void)
 {
@@ -264,6 +265,7 @@ u16 adc_get_val_once(void)
 
     return g_temp_value;
 }
+#endif
 
 /************************************************
 ;  *    @Function Name       : Sys_Init
@@ -659,6 +661,18 @@ void adc_scan_handle(void)
                 need_charge_cnt++;
             }
 
+            // if (charge_time_cnt >= (u32)30 * 1000 && 0 == flag_is_led_breath_disable) // 30 * 1000ms // 测试用
+            if (charge_time_cnt >= ((u32)3 * 60 * 60 * 1000 + (u32)7 * 60 * 1000) && 0 == flag_is_led_breath_disable) // 3h7min
+            {
+                // 如果充电已经累计了一定时间
+                // LED_CHARGING_OFF(); // 关闭充电指示灯
+
+                // 不使能充电指示灯
+                flag_is_led_breath_disable = 1;
+                LED_CHARGING_OFF(); // 关闭充电指示灯
+                LED_WORKING_ON();   // 打开电源指示灯，表示充满电
+            }
+
             if (flag_bat_is_empty)
             {
 // 如果检测到拔出了电池
@@ -809,6 +823,8 @@ void adc_scan_handle(void)
                 LED_WORKING_OFF();     // 关闭电池充满电的指示灯（白灯）
 
                 FLAG_DURING_CHARGING_BAT_IS_NULL = 0; // 清空该标志位，因为已经不在充电的情况下
+
+                flag_is_led_breath_disable = 0; // 清空该标志位
                 break;
             } // if (cnt >= 8)
 
@@ -824,7 +840,8 @@ void adc_scan_handle(void)
                 {
                     // 如果未满电
                     LED_FULL_CHARGE_OFF();
-                    LED_WORKING_OFF();
+
+                    // LED_WORKING_OFF();
                     // LED_CHARGING_ON();
                 }
             }
@@ -1022,7 +1039,8 @@ label:
 
     adc_config();
     adc_sel_pin(ADC_PIN_P00_AN0);
-    adc_val = adc_get_val_once();
+    // adc_val = adc_get_val_once();
+    adc_val = adc_get_val();
     // 如果按下开机按键/插入充电器，不会满足条件：
     if (adc_val < ADCDETECT_CHARING_THRESHOLD && P01D)
     {
@@ -1171,13 +1189,13 @@ void main(void)
                 // tmp_bat_val += 16;
                 // tmp_bat_val += 106;
                 // tmp_bat_val += 120; // 1.05A
-                // tmp_bat_val += 140; // 
-                // tmp_bat_val += 160; // 
-                // tmp_bat_val += 200; // 
-                // tmp_bat_val += 220; // 
-                // tmp_bat_val += 240; // 
-                tmp_bat_val += 250; // 
-                // tmp_bat_val += 260; // 
+                // tmp_bat_val += 140; //
+                // tmp_bat_val += 160; //
+                // tmp_bat_val += 200; //
+                // tmp_bat_val += 220; //
+                // tmp_bat_val += 240; //
+                tmp_bat_val += 250; //
+                // tmp_bat_val += 260; //
             }
             else if (adc_bat_val <= 3326) // 如果检测电池电压小于 7.62V
             {
@@ -1271,7 +1289,7 @@ void main(void)
                 // tmp_bat_val -= 80;
                 u16 i;
 
-                for (i = 0; i < 260; i++) // 
+                for (i = 0; i < 260; i++) //
                 // for (i = 0; i < 220; i++) // 660mA       --- 在客户那里测试是800
                 // for (i = 0; i < 300; i++) // 610mA
                 // for (i = 0; i < 400; i++) // 550mA
@@ -1355,7 +1373,7 @@ void main(void)
                     如果差值过大，则快速调节，如果差值过小，则慢速调节，
                     防止电流突变，导致不同的板子最终充电电流不一致
                 */
-                static u8 cnt = 0;
+                static u8 cnt;
                 cnt++;
 
                 if (tmp_val > last_pwm_val)
@@ -1505,14 +1523,14 @@ void int_isr(void) __interrupt
     if (T3IF & T3IE)
     {
         {
-            static u8 __1ms_cnt = 0;
+            static u8 __1ms_cnt;
             __1ms_cnt++;
             if (__1ms_cnt >= 10)
             {
                 __1ms_cnt = 0;
                 // 目前每1ms进入一次中断
                 { // 按键扫描
-                    static u8 key_scan_cnt = 0;
+                    static u8 key_scan_cnt;
                     key_scan_cnt++;
                     if (key_scan_cnt >= 10)
                     {
@@ -1528,7 +1546,7 @@ void int_isr(void) __interrupt
                 }
 
                 { // 低电量检测
-                    static u16 low_bat_cnt = 0;
+                    static u16 low_bat_cnt;
                     // static u16 cancel_low_bat_alarm_cnt = 0; // 取消低电量报警的时间计数
 
                     if (flag_maybe_low_battery)
@@ -1561,7 +1579,7 @@ void int_isr(void) __interrupt
                 } // 低电量检测
 
                 { // 关机电量检测
-                    static u16 shut_down_bat_cnt = 0;
+                    static u16 shut_down_bat_cnt;
                     if (flag_tim_scan_maybe_shut_down)
                     {
                         shut_down_bat_cnt++;
@@ -1578,7 +1596,7 @@ void int_isr(void) __interrupt
                     }
                 } // 关机电量检测
 
-                { // 充电时，调节电流时间间隔控制
+                { // 充电时，调节电流时间间隔控制；另外加入了充电累计时间计数
                     static u16 update_current_time_cnt;
                     if (FLAG_IS_IN_CHARGING)
                     {
@@ -1588,18 +1606,20 @@ void int_isr(void) __interrupt
                             update_current_time_cnt = 0;
                             flag_is_update_current = 1;
                         }
+
+                        charge_time_cnt++;
                     }
                     else
                     {
-                        FLAG_IS_IN_CHARGING = 0;
+                        // FLAG_IS_IN_CHARGING = 0;
                     }
 
-                } // 充电时，调节电流时间间隔控制
+                } // 充电时，调节电流时间间隔控制；另外加入了充电累计时间计数
             }
         }
 
         // 呼吸灯控制：
-        if (FLAG_IS_IN_CHARGING && 0 == FLAG_BAT_IS_FULL)
+        if (FLAG_IS_IN_CHARGING && 0 == FLAG_BAT_IS_FULL && 0 == flag_is_led_breath_disable)
         {
             // PWM控制
             if (pwm_counter < pwm_duty)

@@ -304,10 +304,13 @@ volatile u8 full_charge_cnt;   // 检测到充满电后，进行计数的变量
 #define BREATH_PERIOD 200 // 呼吸周期（ms）
 
 static uint8_t pwm_duty;		 // 当前PWM占空比
-static uint16_t pwm_counter;	 // PWM计数器
+static uint8_t pwm_counter;	 // PWM计数器
 static uint8_t breath_counter;	 // 呼吸效果计数器
 static uint8_t breath_direction; // 呼吸方向：0-渐亮，1-渐暗
 static uint8_t led_state;		 // LED状态
+
+// 充电累计时间
+volatile u32 charge_time_cnt;
 
 // 中断服务程序使用到的两个变量：
 u8 abuf;
@@ -357,6 +360,8 @@ volatile bit_flag flag3;
 #define flag_is_needed_shut_down flag3.bits.bit4	  // 标志位，是否检测到了低电压关机，0--否，1--是，由对应的功能来执行关机
 
 #define flag_is_update_current flag3.bits.bit5 // 是否到了更新充电电流的时间
+
+#define flag_is_led_breath_disable flag3.bits.bit6 // 是否关闭充电指示灯(呼吸灯)
 
 // 毫秒级延时 (误差：在1%以内，1ms、10ms、100ms延时的误差均小于1%)
 // 前提条件：FCPU = FHOSC / 4
