@@ -306,18 +306,23 @@ void Sys_Init(void)
 
     // timer0_pwm_config();
     {
-        T0LOAD = 172 - 1;
-        // T0DATA = 80; // 占空比 == T0DATA / T0LOAD （占空比等到调节转速和方向时再调节）
+        // T0LOAD = 172 - 1;
+        // PWM0EC = 0;  // 禁止PWM输出
+        // T0CR = 0x81; // 使能定时器，时钟源为FCPU，2分频
+
+        /*
+            FCPU == 8Mhz，T0时钟源选择FCPU，2分频，T0时钟源==4Mhz
+            T0每隔0.00000025s计数一次
+            T0LOAD == 172 - 1，则 0.000043s 溢出一次，
+            1 / 0.000043s 约为 23255 Hz
+        */
+        T0LOAD = 201 - 1;
         PWM0EC = 0;  // 禁止PWM输出
         T0CR = 0x81; // 使能定时器，时钟源为FCPU，2分频
     }
     // timer1_pwm_config();
     {
-        // ====================================================
-        // 接近15.645KHz版本，前提条件：FCPU = FOSC / 4
-        // T1CR |= 0x02; // 4分频
-        T1LOAD = 172 - 1;
-        // T1DATA = 25; // 占空比 == T1DATA / T1LOAD
+        T1LOAD = 201 - 1;
         PWM1EC = 0;  // 禁止PWM1输出
         T1CR = 0x81; // 使能定时器，时钟源为FCPU，2分频
     }
@@ -342,6 +347,8 @@ void Sys_Init(void)
         PWM2EC = 0; // 禁止PWM输出
         // PWM2EC = 1;	 // 使能PWM输出
         T2EN = 1;
+
+        // T2 时钟源 TMR选择 FHOSC / 2，T2LOAD == 209，约62.5ns计数一次，pwm周期约13.125us，频率约为76KHz
     }
 
     // timer3_config();
@@ -544,8 +551,8 @@ void key_event_handle(void)
             if (MODE_1 == mode_flag)
             {
                 // 设置PWM的占空比
-                T0DATA = 160;
-                T1DATA = 160;
+                T0DATA = (u8)((u32)201 * 857 / 1000);
+                T1DATA = (u8)((u32)201 * 857 / 1000);
 
                 mode_flag = MODE_2;
                 flag_ctl_dir = 1;
@@ -570,10 +577,10 @@ void key_event_handle(void)
             }
             else if (MODE_4 == mode_flag)
             {
-                // PWM0EC = 1;
-                // PWM1EC = 1;
-                T0DATA = 150;
-                T1DATA = 150;
+                // T0DATA = 150;
+                // T1DATA = 150;
+                T0DATA = (u8)((u32)201 * 726 / 1000);
+                T1DATA = (u8)((u32)201 * 726 / 1000);
                 mode_flag = MODE_1;
                 flag_ctl_dir = 1;
             }
@@ -609,8 +616,8 @@ void key_event_handle(void)
             FLAG_IS_DEVICE_OPEN = 1;
 
             // 设定正转、反转的PWM的初始占空比
-            T0DATA = 150;
-            T1DATA = 150;
+            T0DATA = (u8)((u32)201 * 726 / 1000);
+            T1DATA = (u8)((u32)201 * 726 / 1000);
             mode_flag = MODE_1; // 下一次切换模式时，会变成 MODE_2
 
             // // 打开控制正转的PWM
@@ -878,26 +885,6 @@ void adc_scan_handle(void)
                 flag_is_low_battery = 0; // 清除该标志位
                 break;
             } // if (cnt >= 8)
-            // if (cnt >= 8)
-            // {
-            //     // 确认是插入充电线后
-            //     full_charge_cnt = 0;
-            //     over_charging_cnt = 0;
-
-            //     if (FLAG_IS_DEVICE_OPEN)
-            //     {
-            //         LED_WORKING_ON(); // 打开工作指示灯
-            //     }
-            //     else
-            //     {
-            //         // 设备不工作时，才打开该指示灯
-            //         LED_CHARGING_ON(); // 开启充电指示灯
-            //     }
-
-            //     PWM2EC = 1; // 开启控制升压电路的pwm
-            //     FLAG_IS_IN_CHARGING = 1;
-            //     break;
-            // } // if (cnt >= 8)
         }
 
         // key_scan_handle(); // 按键扫描和处理函数
@@ -1050,28 +1037,7 @@ label:
         goto label;
     }
 
-    // P02PU = 0; // 关闭上下拉
-    // P02PD = 0;
-    // P02OE = 0; // 输入模式
-    // P02DC = 1; // 模拟输入
-    // adc_sel_pin(ADC_PIN_P02_AN1);
-    // adc_val = adc_get_val();
-    // if (adc_val < ADCVAL_REF_BAT_6_0_V)
-    // {
-    //     // 如果电池电量过低，不开机，但是可以充电
-    //     FLAG_IS_NOT_OPEN_DEVICE = 1; // 不允许开机，但是可以充电
-    // }
-    // else
-    // {
-    //     FLAG_IS_NOT_OPEN_DEVICE = 0;
-    // }
-
-    // FLAG_IS_NOT_OPEN_DEVICE = 0;
-
     Sys_Init();
-    // GIE = 1;
-
-    // delay_ms(1); // 等待系统稳定
 }
 
 void main(void)
@@ -1129,7 +1095,7 @@ void main(void)
             last_pwm_val = T2DATA;      // 读出上一次PWM占空比对应的值
             max_pwm_val = (T2LOAD + 1); // 读出PWM占空比设定的、最大的值
 
-#if 1       // 使用计算的方式来控制充电电流
+#if 1 // 使用计算的方式来控制充电电流
             /*
                 修改电压差值，电压差值 = 203 - (adc_bat_val * 122 / 1000)
 
@@ -1143,8 +1109,6 @@ void main(void)
                 y = kx + b ==> 压差 = -0.122 * 充电时的电池电压 + 203
                 转换成单片机可以计算的形式：压差 = 203 - (充电时的电池电压 * 122 / 1000)
             */
-
-#if 1
 
             /*
                 检测电池电压 1M上拉、470K下拉
@@ -1199,73 +1163,12 @@ void main(void)
             }
             else if (adc_bat_val <= 3326) // 如果检测电池电压小于 7.62V
             {
-                // tmp_bat_val = (adc_bat_val + 0);
-                // tmp_bat_val = (adc_bat_val + 0);
-                // tmp_bat_val += 90; // 1.05A
-                // tmp_bat_val += 110;
-                // tmp_bat_val += 130;
-                // tmp_bat_val += 170;
-                // tmp_bat_val += 190;
                 tmp_bat_val += 200;
-                // tmp_bat_val += 210;
             }
             else // 如果在充电时检测到电池电压大于
-            // else if (adc_bat_val <= 3580) // 小于8.2V
             {
-                // tmp_bat_val = (u32)adc_bat_val - ((u32)adc_bat_val * 157 / 1000 - 260); // 实际的充电电流更小了 0.75-0.85
-                // tmp_bat_val = (u32)adc_bat_val - ((u32)adc_bat_val * 157 / 1000 - 304); // 1.3-1.5
-                // tmp_bat_val = (u32)adc_bat_val - ((u32)adc_bat_val * 157 / 1000 - 284); // 1.1A-1.2A (电池没电时在0.9-1.2浮动，电池8V时在0.99·1.08浮动)
-                // tmp_bat_val = (u32)adc_bat_val - ((u32)adc_bat_val * 157 / 1000 - 274); // 0.3(刚开始，几分钟后会升到0.9)-0.9
-
-                // 如果检测电池的分压电阻是 22K / 100K，1.2-1.3A,最常见是在1.22A、1.26A
-                // 如果检测电池的分压电阻是 220K / 1M，充电电流在0.9A-1A
-                // tmp_bat_val = (u32)adc_bat_val - ((u32)adc_bat_val * 157 / 1000 - 294);
-
-                // tmp_bat_val = (u32)adc_bat_val - ((u32)adc_bat_val * 157 / 1000 - 522);
                 tmp_bat_val -= ((u32)adc_bat_val * 157 / 1000 - 522);
             }
-            // else // 如果电池电压大于8.2V，降低电流
-            // {
-            // // tmp_bat_val = (adc_bat_val + 10);
-            // }
-
-            // tmp_bat_val += 30;
-            // tmp_bat_val += 32;
-            // tmp_bat_val += 52; //
-            // tmp_bat_val += 33; // 1.3A(7361芯片)
-
-            // 用7351芯片,充电电流 0.89-0.90A
-            // 7361,0.83-0.84A
-            // tmp_bat_val += 27; //
-
-            // 7361,0.84-0.85A
-            // tmp_bat_val += 30;
-
-            // 7361,0.9A
-            // tmp_bat_val += 33;
-
-            // 7361,0.95A
-            // tmp_bat_val += 40;
-
-            // 7361,0.98A-1.0A
-
-            // tmp_bat_val += 30;
-            // tmp_bat_val += 40; // 1.07、1.08A
-            // tmp_bat_val += 42;
-            // tmp_bat_val += 44;
-
-            // tmp_bat_val += 45; // 1.07
-
-            // tmp_bat_val += 47; // 1.12、但是后续会到1.2
-            // tmp_bat_val += 50; // 1.15A、1.2
-            // tmp_bat_val += 55;
-            // tmp_bat_val += 60; // 1.1
-            // tmp_bat_val += 65; // 1.1
-
-            // tmp_bat_val += 120; //
-            // tmp_bat_val += 250; //
-            // tmp_bat_val += 350; //
-            // tmp_bat_val += 400; //
 
             {
                 // if (tmp_bat_val > 90)
@@ -1301,22 +1204,6 @@ void main(void)
                     }
                 }
             }
-
-#endif
-
-            // for (i = 0; i < ARRAY_SIZE(bat_val_fix_table); i++)
-            // {
-            //     if (adc_bat_val <= bat_val_fix_table[i].adc_bat_val)
-            //     {
-            //         tmp_bat_val = (adc_bat_val + bat_val_fix_table[i].tmp_bat_val_fix);
-            //         break;
-            //     }
-
-            //     if (i == (ARRAY_SIZE(bat_val_fix_table) - 1))
-            //     {
-            //         tmp_bat_val = (u32)adc_bat_val - ((u32)adc_bat_val * 157 / 1000 - 522) + TMP_BAT_VAL_FIX;
-            //     }
-            // }
 
             /*
                 升压公式：Vo = Vi / (1 - D)
@@ -1395,60 +1282,6 @@ void main(void)
             }
 
 #endif // 使用计算的方式来控制充电电流
-
-#if 0 // 使用检测充电前后电池电压变化的差值来控制充电电流
-
-            u16 adc_bat_val_when_charging;     // 充电时的电池电压
-            u16 adc_bat_val_when_not_charging; // 未充电时的电池电压
-            u8 adjust_pwm_val_dir;             // 调整方向
-
-            if (flag_is_update_current)
-            {                
-                flag_is_update_current = 0;
-                PWM2EC = 1; // 使能升压的PWM
-                delay_ms(WAIT_CIRCUIT_STABLIZE_TIMES);
-                adc_sel_pin(ADC_PIN_P02_AN1);
-                adc_bat_val_when_charging = adc_get_val();
-
-                PWM2EC = 0; // 不使能升压的PWM
-                delay_ms(WAIT_CIRCUIT_STABLIZE_TIMES);
-                adc_bat_val_when_not_charging = adc_get_val();
-
-                if (adc_bat_val_when_charging > adc_bat_val_when_not_charging) /* 如果充电时，测得的ad值比没有充电时的ad值大 */
-                {
-                    if ((adc_bat_val_when_charging - adc_bat_val_when_not_charging) > ADC_BAT_DIFF_VAL) /* 如果充电时和没有充电时的差值大于设定的差值 */
-                    {
-                        adjust_pwm_val_dir = 0;
-                    }
-                    else
-                    {
-                        adjust_pwm_val_dir = 1;
-                    }
-                }
-                else
-                {
-                    adjust_pwm_val_dir = 1;
-                }
-
-                if (adjust_pwm_val_dir)
-                {
-                    if (last_pwm_val < max_pwm_val)
-                    {
-                        last_pwm_val++;
-                    }
-                }
-                else
-                {
-                    if (last_pwm_val >= 1)
-                    {
-                        last_pwm_val--;
-                    }
-                }
-            }
-
-            PWM2EC = 1; // 使能升压的PWM
-
-#endif // 使用检测充电前后电池电压变化的差值来控制充电电流
 
             T2DATA = last_pwm_val;
 
@@ -1547,12 +1380,10 @@ void int_isr(void) __interrupt
 
                 { // 低电量检测
                     static u16 low_bat_cnt;
-                    // static u16 cancel_low_bat_alarm_cnt = 0; // 取消低电量报警的时间计数
 
                     if (flag_maybe_low_battery)
                     {
                         low_bat_cnt++;
-                        // if (low_bat_cnt >= 2000) // xx ms
                         if (low_bat_cnt >= 5000) // xx ms
                         {
                             low_bat_cnt = 0;
@@ -1562,19 +1393,6 @@ void int_isr(void) __interrupt
                     else
                     {
                         low_bat_cnt = 0;
-
-                        // if (flag_is_low_battery) // 如果之前处于低电量报警
-                        // {
-                        // cancel_low_bat_alarm_cnt++;
-                        //     if (cancel_low_bat_alarm_cnt >= 2000) // 持续 xx ms检测到电池电量正常，取消低电量报警
-                        //     {
-                        //         cancel_low_bat_alarm_cnt = 0;
-                        //     }
-                        // }
-                        // else
-                        // {
-                        //     cancel_low_bat_alarm_cnt = 0;
-                        // }
                     }
                 } // 低电量检测
 
